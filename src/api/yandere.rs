@@ -1,12 +1,18 @@
-use reqwest::{Client, Request};
-use std::{collections::HashMap, result};
+use reqwest::{Client};
+use std::{collections::HashMap};
 use strfmt::strfmt;
 
-use crate::models::yandere::{Yandere, YandereRoot};
+use crate::models::yandere::{YandereRoot};
 
-enum RATING { S, E, Q, ALL, }
+#[allow(dead_code)]
+pub enum RATING {
+	S,
+	E,
+	Q,
+	ALL,
+}
 
-enum REQUEST {
+pub enum REQUEST {
 	Request(String),
 	RandomTemplate([String; 2], u16),
 }
@@ -24,7 +30,7 @@ impl REQUEST {
 		Ok(body)
 	}
 
-	pub async fn get_random_images(mut self, client: &Client) -> Result<YandereRoot, Box<dyn std::error::Error>> {
+	pub async fn get_images(self, client: &Client) -> Result<YandereRoot, Box<dyn std::error::Error>> {
 		match self {
 			Self::Request(request) => {
 				Self::fetch_request(client, &request).await
@@ -51,7 +57,7 @@ impl REQUEST {
 						let mut low: u64 = page_s_1000 / 2;
 						let mut high: u64 = page_s_1000;
 						while low < high {
-							let mut mid: u64 = (low + high + 1) / 2;
+							let mid: u64 = (low + high + 1) / 2;
 
 							let result: YandereRoot = Self::fetch_request(
 								client,
@@ -85,7 +91,7 @@ impl REQUEST {
 
 				let mut result: YandereRoot = YandereRoot::new();
 
-				for i in 0..limit {
+				for _ in 0..limit {
 					let url = strfmt(&template, &{
 						let mut v = HashMap::new();
 						v.insert("image".to_string(), fastrand::u64(1..=total_images).to_string());
@@ -102,7 +108,7 @@ impl REQUEST {
 	}
 }
 
-struct BooruRequest{
+pub struct BooruRequest{
 	limit: u16,
 	page: u64,
 	is_random: bool,
@@ -185,8 +191,8 @@ impl BooruRequest {
 			};
 			
 			let args_templ: Vec<String> = vec!["limit=1".to_string(), "page={image}".to_string(), tags.to_owned()];
-			let args_сlar: Vec<String> = vec!["limit=1000".to_string(), "page={image}".to_string(), tags];
-			REQUEST::RandomTemplate([format!("https://yande.re/post.json?{}", args_templ.join("&")), format!("https://yande.re/post.json?{}", args_сlar.join("&"))], self.limit)
+			let args_clar: Vec<String> = vec!["limit=1000".to_string(), "page={image}".to_string(), tags];
+			REQUEST::RandomTemplate([format!("https://yande.re/post.json?{}", args_templ.join("&")), format!("https://yande.re/post.json?{}", args_clar.join("&"))], self.limit)
 		}
 	}
 }
@@ -204,28 +210,24 @@ mod tests {
 		let request: BooruRequest = BooruRequest::new()
 			//.set_tag("blue_archive".to_string())
 			.randomize()
-			.set_limit(1)
+			.set_limit(3)
 			.set_rating(RATING::S)
 			.set_tag("blue_archive".to_string());
 		
-		//match request.build() {
-		//	REQUEST::Request(req) => {
-		//		println!("{}", req);
-		//	}
-		//	REQUEST::RandomTemplate([req,_], _) => {
-		//		println!("{}", req);
-		//	}
-		//}
+		match request.build() {
+			REQUEST::Request(req) => {
+				println!("{}", req);
+			}
+			REQUEST::RandomTemplate([req, q], lim) => {
+				println!("{}", req);
+				println!("{}", q);
+				println!("{}", lim);
+			}
+		}
 
-		let a = request.build().get_random_images(&client).await.expect("я это обязательно исправлю");
+		let a = request.build().get_images(&client).await.expect("я это обязательно исправлю");
 		println!("{:#?}", a);
 
-		let a = request.build().get_random_images(&client).await.expect("я это обязательно исправлю");
-		println!("{:#?}", a);
-
-		let a = request.build().get_random_images(&client).await.expect("я это обязательно исправлю");
-		println!("{:#?}", a);
-
-		//assert_eq!(result, 4);
+		assert_eq!(a.len(), 3);
 	}
 }

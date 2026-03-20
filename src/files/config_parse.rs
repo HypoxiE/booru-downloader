@@ -49,23 +49,34 @@ impl LuaMapper {
 		Ok(Self { lua, mappings })
 	}
 
-	pub async fn map_api_responses(&self, domain: &str, json: &String) -> Result<APIResponses, Box<dyn std::error::Error>> {
-		let json: serde_json::Value = serde_json::from_str(json)?;
+	pub fn map_api_responses(&self, domain: &str, json: &String) -> anyhow::Result<APIResponses> {
+		let json: serde_json::Value = match serde_json::from_str(json) {
+			Ok(value) => value,
+			Err(error) => {
+				return Err(anyhow::anyhow!("Invalid json from {}: {} \n Original error: {}", domain, json, error.to_string()));
+			}
+		};
 
-		let sites: mlua::Table = self.mappings.get("sites")?;
-		let site: mlua::Table = sites.get(domain)?;
-		let func: Function = site.get("parse")?;
+		let sites: mlua::Table = self.mappings.get("sites").expect("я это обязательно исправлю");
+		let site: mlua::Table = sites.get(domain).expect("я это обязательно исправлю");
+		let func: Function = site.get("parse").expect("я это обязательно исправлю");
 
-		let lua_json: mlua::Value = self.lua.to_value(&json)?;
-		let result: mlua::Value = func.call(lua_json)?;
+		let lua_json: mlua::Value = self.lua.to_value(&json).expect("я это обязательно исправлю");
+		let result: mlua::Value = func.call(&lua_json).expect("я это обязательно исправлю");
 
-		let responses: APIResponses =
-			self.lua.from_value(result)?;
+		let responses: APIResponses = self.lua.from_value(result).expect(&format!("Lua returns invalid data: {:?}", lua_json));
 
 		Ok(responses)
 	}
 
-	pub async fn get_setting(&self, field: &str) -> Result<String, Box<dyn std::error::Error>> {
+	pub fn get_image_data(&self, domain: &str, field: &str) -> anyhow::Result<String> {
+		let sites: mlua::Table = self.mappings.get("sites")?;
+		let site_config: mlua::Table = sites.get(domain)?;
+		let value: String = site_config.get(field)?;
+		Ok(value)
+	}
+
+	pub fn get_setting(&self, field: &str) -> anyhow::Result<String> {
 		let config: mlua::Table = self.mappings.get("configuration")?;
 		let value: String = config.get(field)?;
 		Ok(value)

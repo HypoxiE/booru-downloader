@@ -1,1 +1,1 @@
-pub mod yandere;
+pub mod api_responses;

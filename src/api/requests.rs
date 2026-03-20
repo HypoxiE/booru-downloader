@@ -2,7 +2,11 @@ use reqwest::{Client};
 use std::{collections::HashMap};
 use strfmt::strfmt;
 
-use crate::models::yandere::{YandereRoot};
+use crate::cache_save_load::CACHE_COUNT_IMAGES;
+use crate::models::{api_responses::APIResponses};
+use crate::files::config_parse::CONFIGURATIONS;
+
+use chrono::prelude::Utc;
 
 #[allow(dead_code)]
 pub enum RATING {
@@ -18,87 +22,107 @@ pub enum REQUEST {
 }
 impl REQUEST {
 	
-	async fn fetch_request(client: &Client, request: &str) -> Result<YandereRoot, Box<dyn std::error::Error>> {
+	async fn fetch_request(client: &Client, request: &str) -> Result<APIResponses, Box<dyn std::error::Error>> {
 		let body = client
 			.get(request)
 			.header("User-Agent", "Mozilla/5.0")
 			.send()
 			.await?
-			.json::<YandereRoot>()
+			.text()
 			.await?;
 
-		Ok(body)
+		let response = CONFIGURATIONS.map_api_responses("https://yande.re/post.json", &body).await.expect("обязательно исправлю");
+		Ok(response)
 	}
 
-	pub async fn get_images(self, client: &Client) -> Result<YandereRoot, Box<dyn std::error::Error>> {
+	pub async fn get_images(self, client: &Client) -> Result<APIResponses, Box<dyn std::error::Error>> {
 		match self {
 			Self::Request(request) => {
 				Self::fetch_request(client, &request).await
 			}
 			Self::RandomTemplate([template, clarification], limit) => {
-				let clarification = clarification.clone();
 
-				let mut page_s_1000: u64 = 1;
-				let total_images: u64 = loop {
-					
-					let result: YandereRoot = Self::fetch_request(
-						client,
-						&strfmt(&clarification, &{
-							let mut v = HashMap::new();
-							v.insert("image".to_string(), page_s_1000.to_string());
-							v
-						})?,
-					).await.expect("я это обязательно исправлю");
+				let mut total_images: u64 = 0;
 
-					if result.len() < 1000 && result.len() > 0 {
-						break (page_s_1000 - 1) * 1000 + result.len() as u64;
-					}
-					if result.is_empty() {
-						let mut low: u64 = page_s_1000 / 2;
-						let mut high: u64 = page_s_1000;
-						while low < high {
-							let mid: u64 = (low + high + 1) / 2;
+				let now_timestamp: u64 = Utc::now().timestamp() as u64;
 
-							let result: YandereRoot = Self::fetch_request(
-								client,
-								&strfmt(&clarification, &{
-									let mut v = HashMap::new();
-									v.insert("image".to_string(), mid.to_string());
-									v
-								})?,
-							).await.expect("я это обязательно исправлю");
+				let cache = CACHE_COUNT_IMAGES.read().await;
+				let fresh = if let Some(&[timestamp, images]) = cache.get(&template) {
+					total_images = images;
+					timestamp >= now_timestamp - 60 * 60 * 3
+				} else {
+					false
+				};
+				drop(cache);
 
-							if result.is_empty() {
-								high = mid - 1;
-							} else {
-								low = mid;
-							}
-						};
-						let last_page: u64 = low;
-        				let last_page_data: YandereRoot = Self::fetch_request(
+				if !fresh {
+					let mut page_s_1000: u64 = 1;
+					total_images = loop {
+						
+						let result: APIResponses = Self::fetch_request(
 							client,
 							&strfmt(&clarification, &{
-								let mut v = HashMap::new();
-								v.insert("image".to_string(), last_page.to_string());
+								let mut v: HashMap<String, String> = HashMap::new();
+								v.insert("image".to_string(), page_s_1000.to_string());
 								v
 							})?,
 						).await.expect("я это обязательно исправлю");
 
-						break (last_page - 1) * 1000 + last_page_data.len() as u64;
-					}
-					page_s_1000 *= 2;
-				};
+						if result.len() < 1000 && result.len() > 0 {
+							break (page_s_1000 - 1) * 1000 + result.len() as u64;
+						}
+						if result.is_empty() {
+							let mut low: u64 = page_s_1000 / 2;
+							let mut high: u64 = page_s_1000;
+							while low < high {
+								let mid: u64 = (low + high + 1) / 2;
 
-				let mut result: YandereRoot = YandereRoot::new();
+								let result: APIResponses = Self::fetch_request(
+									client,
+									&strfmt(&clarification, &{
+										let mut v: HashMap<String, String> = HashMap::new();
+										v.insert("image".to_string(), mid.to_string());
+										v
+									})?,
+								).await.expect("я это обязательно исправлю");
+
+								if result.is_empty() {
+									high = mid - 1;
+								} else {
+									low = mid;
+								}
+							};
+							let last_page: u64 = low;
+							let last_page_data: APIResponses = Self::fetch_request(
+								client,
+								&strfmt(&clarification, &{
+									let mut v: HashMap<String, String> = HashMap::new();
+									v.insert("image".to_string(), last_page.to_string());
+									v
+								})?,
+							).await.expect("я это обязательно исправлю");
+
+							break (last_page - 1) * 1000 + last_page_data.len() as u64;
+						}
+						page_s_1000 *= 2;
+					};
+
+
+					let mut cache = CACHE_COUNT_IMAGES.write().await;
+					cache.insert(template.to_owned(), [now_timestamp, total_images]);
+					drop(cache);
+				}
+
+				let mut result: APIResponses = APIResponses::new();
 
 				for _ in 0..limit {
-					let url = strfmt(&template, &{
-						let mut v = HashMap::new();
+					let url: String = strfmt(&template, &{
+						let mut v: HashMap<String, String> = HashMap::new();
 						v.insert("image".to_string(), fastrand::u64(1..=total_images).to_string());
 						v
 					})?;
 
-					let mut answer = Self::fetch_request(client, &url).await?;
+					let mut answer: APIResponses = Self::fetch_request(client, &url).await.expect("я это обязательно исправлю");
 					result.append(&mut answer);
 				}
 				
@@ -109,6 +133,7 @@ impl REQUEST {
 }
 
 pub struct BooruRequest{
+	api_url: String,
 	limit: u16,
 	page: u64,
 	is_random: bool,
@@ -117,6 +142,7 @@ pub struct BooruRequest{
 }
 impl BooruRequest {
 	pub fn new() -> Self {
+		let api_url: String = "https://yande.re/post.json".to_string();
 		let limit: u16 = 1;
 		let page: u64 = 1;
 
@@ -124,7 +150,7 @@ impl BooruRequest {
 		let rating: RATING = RATING::S;
 		let tags: Vec<String> = vec![];
 
-        Self { limit, page, is_random, rating, tags}
+        Self {api_url, limit, page, is_random, rating, tags}
 	}
 
 	pub fn set_limit(mut self, limit: u16) -> Self {
@@ -164,12 +190,12 @@ impl BooruRequest {
 					RATING::ALL => {}
 				}
 
-				format!("tags={}", truetags.join("+"))
+				format!("tags={}", {truetags.sort(); truetags}.join("+"))
 			};
 			
 			let args: Vec<String> = vec![limit, page, tags];
 
-			REQUEST::Request(format!("https://yande.re/post.json?{}", args.join("&")))
+			REQUEST::Request(format!("{}?{}", self.api_url, args.join("&")))
 		} else {
 			let tags: String = {
 				let mut truetags: Vec<String> = self.tags.to_owned();
@@ -187,12 +213,12 @@ impl BooruRequest {
 					RATING::ALL => {}
 				}
 
-				format!("tags={}", truetags.join("+"))
+				format!("tags={}", {truetags.sort(); truetags}.join("+"))
 			};
 			
 			let args_templ: Vec<String> = vec!["limit=1".to_string(), "page={image}".to_string(), tags.to_owned()];
 			let args_clar: Vec<String> = vec!["limit=1000".to_string(), "page={image}".to_string(), tags];
-			REQUEST::RandomTemplate([format!("https://yande.re/post.json?{}", args_templ.join("&")), format!("https://yande.re/post.json?{}", args_clar.join("&"))], self.limit)
+			REQUEST::RandomTemplate([format!("{}?{}", self.api_url, args_templ.join("&")), format!("{}?{}", self.api_url, args_clar.join("&"))], self.limit)
 		}
 	}
 }

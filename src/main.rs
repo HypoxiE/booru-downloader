@@ -13,7 +13,7 @@ async fn main() {
 
 	let client: reqwest::Client = reqwest::Client::new();
 
-	let request: BooruRequest = BooruRequest::new("https://yande.re/post.json".to_string())
+	let request: BooruRequest = BooruRequest::new("yande.re".to_string())
 			//.set_tag("blue_archive".to_string())
 			.randomize()
 			.set_limit(4)

@@ -1,0 +1,32 @@
+meta {
+  name: yande.re
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://yande.re/post.json?limit=10&page=1&tags=nekopara+rating:s+width:>=1920+height:<1500
+  body: json
+  auth: inherit
+}
+
+params:query {
+  limit: 10
+  page: 1
+  tags: nekopara+rating:s+width:>=1920+height:<1500
+}
+
+headers {
+  User-Agent: Mozilla/5.0
+}
+
+body:json {
+  {}
+}
+
+settings {
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+}

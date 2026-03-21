@@ -9,6 +9,8 @@ use std::error::Error;
 use std::path::PathBuf;
 use once_cell::sync::Lazy;
 
+use std::collections::HashMap;
+
 use crate::files::fs_api;
 use crate::models::api_responses::APIResponses;
 
@@ -69,16 +71,37 @@ impl LuaMapper {
 		Ok(responses)
 	}
 
-	pub fn get_image_data(&self, domain: &str, field: &str) -> anyhow::Result<String> {
+	pub fn get_api_parameter_string(&self, domain: &str, field: &str) -> anyhow::Result<String> {
 		let sites: mlua::Table = self.mappings.get("sites")?;
 		let site_config: mlua::Table = sites.get(domain)?;
 		let value: String = site_config.get(field)?;
 		Ok(value)
 	}
 
-	pub fn get_setting(&self, field: &str) -> anyhow::Result<String> {
-		let config: mlua::Table = self.mappings.get("configuration")?;
-		let value: String = config.get(field)?;
+	pub fn get_api_parameter_boolean(&self, domain: &str, field: &str) -> anyhow::Result<bool> {
+		let sites: mlua::Table = self.mappings.get("sites")?;
+		let site_config: mlua::Table = sites.get(domain)?;
+		let value: bool = site_config.get(field)?;
 		Ok(value)
 	}
+
+	pub fn get_api_parameters_table(&self, domain: &str, field: &str) -> anyhow::Result<HashMap<String, String>> {
+		let sites: mlua::Table = self.mappings.get("sites")?;
+		let site_config: mlua::Table = sites.get(domain)?;
+		let headers: mlua::Table = site_config.get(field)?;
+
+		let mut map: HashMap<String, String> = HashMap::new();
+		for pair in headers.pairs::<String, String>() {
+			let (k, v) = pair?;
+			map.insert(k, v);
+		}
+
+		Ok(map)
+	}
+
+	//pub fn get_setting(&self, field: &str) -> anyhow::Result<String> {
+	//	let config: mlua::Table = self.mappings.get("configuration")?;
+	//	let value: String = config.get(field)?;
+	//	Ok(value)
+	//}
 }

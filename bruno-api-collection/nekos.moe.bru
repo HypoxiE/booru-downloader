@@ -1,0 +1,22 @@
+meta {
+  name: nekos.moe
+  type: http
+  seq: 3
+}
+
+post {
+  url: https://nekos.moe/api/v1/images/search
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "limit": 1
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

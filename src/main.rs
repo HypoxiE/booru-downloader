@@ -22,18 +22,7 @@ async fn main() {
 			.set_tag("height:<1500".to_string())
 			.set_tag("nekopara".to_string());
 
-	match request.build().rtype {
-		api::requests::RequestType::Request(req) => {
-			println!("{}", req);
-		}
-		api::requests::RequestType::RandomTemplate([req, q], lim) => {
-			println!("{}", req);
-			println!("{}", q);
-			println!("{}", lim);
-		}
-	}
-
-	let a = request.build().get_images(&client).await.expect("я это обязательно исправлю");
+	let a: Vec<models::api_responses::APIResponse> = request.get_images(&client).await.expect("я это обязательно исправлю");
 	println!("{:#?}", a);
 
 

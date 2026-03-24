@@ -1,6 +1,7 @@
-use reqwest::Client;
+use reqwest::{Client};
 use std::{collections::HashMap};
-use tinytemplate::{TinyTemplate, format_unescaped};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use crate::cache_save_load::CACHE_COUNT_IMAGES;
 use crate::models::{api_responses::APIResponses};
@@ -9,6 +10,7 @@ use crate::files::config_parse::CONFIGURATIONS;
 use chrono::prelude::Utc;
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub enum RATING {
 	S,
 	E,
@@ -16,156 +18,18 @@ pub enum RATING {
 	ALL,
 }
 
-pub enum RequestType {
-	Request(String),
-	RandomTemplate([String; 2], u16),
-}
-
-pub struct Request {
-	pub booru_url: String,
-	pub rtype: RequestType,
-}
-
-impl Request {
-	
-	async fn fetch_request(&self, client: &Client, request: &str) -> anyhow::Result<APIResponses> {
-		
-		let mut raw_request: reqwest::RequestBuilder = client.get(request);
-
-		let headers: HashMap<String, String> = CONFIGURATIONS.get_api_parameters_table(&self.booru_url, "request_headers")?;
-		for (key, value) in headers {
-			raw_request = raw_request.header(key, value);
-		}
-
-		let response: String = raw_request.send().await?.text().await?;
-		let response: APIResponses = CONFIGURATIONS.map_api_responses(&self.booru_url, &response).expect("обязательно исправлю");
-
-		Ok(response)
-	}
-
-	pub async fn get_images(&self, client: &Client) -> anyhow::Result<APIResponses> {
-		match &self.rtype {
-			RequestType::Request(request) => {
-				Self::fetch_request(&self, client, &request).await
-			}
-			RequestType::RandomTemplate([template, clarification], limit) => {
-
-				let mut tt = TinyTemplate::new();
-				tt.add_template("url_template", &template).unwrap();
-				tt.add_template("url_clarific", &clarification).unwrap();
-
-				let mut total_images: u64 = 0;
-
-				let now_timestamp: u64 = Utc::now().timestamp() as u64;
-
-				let cache = CACHE_COUNT_IMAGES.read().await;
-				let fresh = if let Some(&[timestamp, images]) = cache.get(template) {
-					total_images = images;
-					timestamp >= now_timestamp - 60 * 60 * 3
-				} else {
-					false
-				};
-				drop(cache);
-
-				if !fresh {
-					let max_size_page = CONFIGURATIONS.get_api_parameter_string(&self.booru_url, "max_limit")?.parse::<u64>()?;
-					let mut page_size_lim: u64 = 1;
-
-					total_images = loop {
-
-						let check_page = &serde_json::json!({
-							"page": page_size_lim
-						});
-
-						let result: APIResponses = Self::fetch_request(
-							&self,
-							client,
-							&tt.render("url_clarific", check_page).unwrap(),
-						).await.expect("я это обязательно исправлю");
-
-						if result.len() < max_size_page as usize && result.len() > 0 {
-							break (page_size_lim - 1) * max_size_page + result.len() as u64;
-						}
-						if result.is_empty() {
-
-							if page_size_lim == 1 {
-								break 0;
-							}
-
-							let mut low: u64 = page_size_lim / 2;
-							let mut high: u64 = page_size_lim;
-							while low < high {
-								let mid: u64 = (low + high + 1) / 2;
-
-								let check_page = &serde_json::json!({
-									"page": mid
-								});
-
-								let result: APIResponses = Self::fetch_request(
-									&self,
-									client,
-									&tt.render("url_clarific", check_page).unwrap(),
-								).await.expect("я это обязательно исправлю");
-
-								if result.is_empty() {
-									high = mid - 1;
-								} else {
-									low = mid;
-								}
-							};
-							let last_page: u64 = low;
-
-							let check_page = &serde_json::json!({
-								"page": last_page
-							});
-							let last_page_data: APIResponses = Self::fetch_request(
-								&self,
-								client,
-								&tt.render("url_clarific", check_page).unwrap(),
-							).await.expect("я это обязательно исправлю");
-
-							break (last_page - 1) * max_size_page + last_page_data.len() as u64;
-						}
-						page_size_lim *= 2;
-					};
-
-					let mut cache = CACHE_COUNT_IMAGES.write().await;
-					cache.insert(template.to_owned(), [now_timestamp, total_images]);
-					drop(cache);
-				}
-
-				let mut result: APIResponses = APIResponses::new();
-
-				if total_images == 0 {
-					return Ok(result);
-				}
-
-				for _ in 0..*limit {
-					let check_page = &serde_json::json!({
-						"page": fastrand::u64(1..=total_images).to_string()
-					});
-					let url: String = tt.render("url_template", check_page).unwrap();
-
-					let mut answer: APIResponses = Self::fetch_request(&self, client, &url).await.expect("я это обязательно исправлю");
-					result.append(&mut answer);
-				}
-				
-				Ok(result)
-			}
-		}
-	}
-}
-
+#[derive(Clone)]
 pub struct BooruRequest{
-	api_url: String,
-	limit: u16,
-	page: u64,
-	is_random: bool,
-	rating: RATING,
-	tags: Vec<String>,
+	pub domain: String,
+	pub limit: u16,
+	pub page: u64,
+	pub is_random: bool,
+	pub rating: RATING,
+	pub tags: Vec<String>,
 }
+//offline builder
 impl BooruRequest {
-	pub fn new(api_url: String) -> Self {
+	pub fn new(domain: String) -> Self {
 		let limit: u16 = 1;
 		let page: u64 = 1;
 
@@ -173,7 +37,7 @@ impl BooruRequest {
 		let rating: RATING = RATING::S;
 		let tags: Vec<String> = vec![];
 
-        Self {api_url, limit, page, is_random, rating, tags}
+        Self {domain, limit, page, is_random, rating, tags}
 	}
 
 	pub fn set_limit(mut self, limit: u16) -> Self {
@@ -192,71 +56,162 @@ impl BooruRequest {
 		self.tags.push(tag.to_owned());
 		self
 	}
+	pub fn get_rating(&self) -> String {
+		match self.rating {
+			RATING::S => "safe".to_string(),
+			RATING::E => "explicit".to_string(),
+			RATING::Q => "questionable".to_string(),
+			RATING::ALL => "all".to_string()
+		}
+	}
 
-	pub fn build(&self) -> Request {
-		let url: String = CONFIGURATIONS.get_api_parameter_string(&self.api_url, "request_url").unwrap();
-		let tags_separator: String = CONFIGURATIONS.get_api_parameter_string(&self.api_url, "request_tags_separator").unwrap();
+	pub fn build(&self, client: &Client) -> reqwest::RequestBuilder {
+		let mut mapper = CONFIGURATIONS.lock().unwrap();
+		let (url, body): (String, String) = mapper.generate_url(&self);
 
-		let use_booru_random: bool = CONFIGURATIONS.get_api_parameter_boolean(&self.api_url, "use_booru_ratings").unwrap();
+		let use_get_request: bool = mapper.get_api_parameter(&self.domain, "request_use_get");
+		let mut raw_request: reqwest::RequestBuilder = if use_get_request {
+			client.get(url)
+		} else {
+			client.post(url)
+		};
+		let headers: HashMap<String, String> = mapper.get_api_parameters_table(&self.domain, "request_headers");
+		for (key, value) in headers {
+			raw_request = raw_request.header(key, value);
+		}
 
-		let mut tt = TinyTemplate::new();
-		tt.add_template("url", &url).unwrap();
-		tt.set_default_formatter(&format_unescaped);
+		raw_request.body(body)
+	}
 
-		
-		let limit: String = format!("limit={}", self.limit);
-		let page: String = format!("page={}", self.page);
-		let tags: String = {
-			let mut truetags: Vec<String> = self.tags.to_owned();
+	pub fn get_max_lim(&self, page: u64) -> Self {
+		let mut requester: BooruRequest = self.clone();
+		let mapper = CONFIGURATIONS.lock().unwrap();
+		requester.limit = mapper.get_api_parameter(&self.domain, "max_limit");
+		requester.page = page;
+		requester.is_random = false;
 
-			if use_booru_random {
-				match self.rating {
-					RATING::S => {
-						truetags.push("rating:s".to_string());
-					}
-					RATING::E => {
-						truetags.push("rating:e".to_string());
-					}
-					RATING::Q => {
-						truetags.push("rating:q".to_string());
-					}
-					RATING::ALL => {}
-				}
-			};
-			
-			{truetags.sort(); truetags}.join(&tags_separator)
+		requester
+	}
+	pub fn get_min_lim(&self, image: u64) -> Self {
+		let mut requester: BooruRequest = self.clone();
+		requester.limit = 1;
+		requester.page = image;
+		requester.is_random = false;
+
+		requester
+	}
+
+	pub fn get_hash(&self) -> u64 {
+		let mut tags: Vec<String> = self.tags.clone();
+		tags.push(self.get_rating());
+		tags.push(self.domain.to_owned());
+
+		tags.sort();
+		let mut hasher = DefaultHasher::new();
+		tags.hash(&mut hasher);
+		hasher.finish()
+	}
+
+}
+
+//Network fetcher
+impl BooruRequest {
+	async fn fetch_request(&self, client: &Client) -> anyhow::Result<APIResponses> {
+
+		let request: reqwest::RequestBuilder = self.build(client);
+
+		let response: String = request.send().await?.text().await?;
+
+		let mut mapper = CONFIGURATIONS.lock().unwrap();
+		let response: APIResponses = mapper.map_api_responses(&self.domain, &response);
+
+		Ok(response)
+	}
+
+	pub async fn norandom_get_images(&self, client: &Client) -> anyhow::Result<APIResponses> {
+		self.fetch_request(client).await
+	}
+
+	pub async fn get_images(&self, client: &Client) -> anyhow::Result<APIResponses> {
+
+		let (use_self_randomizer, max_limit): (bool, u16) = {
+			let mapper = CONFIGURATIONS.lock().unwrap();
+			(
+				mapper.get_api_parameter(&self.domain, "use_self_randomize"),
+				mapper.get_api_parameter(&self.domain, "max_limit")
+			)
 		};
 
-		if !self.is_random {
-			let args = &serde_json::json!({
-				"limit": limit,
-				"page": page,
-				"tags": tags
-			});
-			
-			Request {
-				booru_url: self.api_url.to_owned(),
-				rtype: RequestType::Request(tt.render("url", args).unwrap())
-			}
+		if !use_self_randomizer || !self.is_random {
+			self.fetch_request(client).await
 		} else {
-			let max_size_page: u64 = CONFIGURATIONS.get_api_parameter_string(&self.api_url, "max_limit").unwrap().parse::<u64>().unwrap();
+			let mut total_images: u64 = 0;
+			let now_timestamp: u64 = Utc::now().timestamp() as u64;
 
-			let args_templ = &serde_json::json!({
-				"limit": 1,
-				"page": "{page}",
-				"tags": tags
-			});
+			let cache = CACHE_COUNT_IMAGES.read().await;
+			let fresh = if let Some(&[timestamp, images]) = cache.get(&self.get_hash()) {
+				total_images = images;
+				timestamp >= now_timestamp - 60 * 60 * 3
+			} else {
+				false
+			};
+			drop(cache);
 
-			let args_clar = &serde_json::json!({
-				"limit": max_size_page,
-				"page": "{page}",
-				"tags": tags
-			});
+			if !fresh {
+				let max_size_page: u16 = max_limit;
+				let mut page_size_lim: u64 = 1;
 
-			Request {
-				booru_url: self.api_url.to_owned(),
-				rtype: RequestType::RandomTemplate([tt.render("url", args_templ).unwrap(), tt.render("url", args_clar).unwrap()], self.limit)
+
+				total_images = loop {
+
+
+					let result: APIResponses = self.get_max_lim(page_size_lim).norandom_get_images(client).await?;
+
+					if result.len() < max_size_page as usize && result.len() > 0 {
+						break (page_size_lim - 1) * max_size_page as u64 + result.len() as u64;
+					}
+					if result.is_empty() {
+
+						if page_size_lim == 1 {
+							break 0;
+						}
+
+						let mut low: u64 = page_size_lim / 2;
+						let mut high: u64 = page_size_lim;
+						while low < high {
+							let mid: u64 = (low + high + 1) / 2;
+
+							let result: APIResponses = self.get_max_lim(mid).norandom_get_images(client).await?;
+
+							if result.is_empty() {
+								high = mid - 1;
+							} else {
+								low = mid;
+							}
+						};
+						let last_page: u64 = low;
+
+						let last_page_data: APIResponses = self.get_max_lim(last_page).norandom_get_images(client).await?;
+
+						break (last_page - 1) * max_size_page as u64 + last_page_data.len() as u64;
+					}
+					page_size_lim *= 2;
+				};
+				let mut cache = CACHE_COUNT_IMAGES.write().await;
+				cache.insert(self.get_hash(), [now_timestamp, total_images]);
+				drop(cache);
 			}
+
+			let mut result: APIResponses = APIResponses::new();
+			if total_images == 0 {
+				return Ok(result);
+			}
+
+			for _ in 0..self.limit as u64 {
+				let mut answer = self.get_min_lim(fastrand::u64(1..=total_images)).norandom_get_images(client).await?;
+				result.append(&mut answer);
+			}
+			Ok(result)
 		}
 	}
 }
@@ -271,25 +226,15 @@ mod tests {
 		let client: reqwest::Client = reqwest::Client::new();
 
 		
-		let request: BooruRequest = BooruRequest::new("https://yande.re/post.json".to_string())
+		let request: BooruRequest = BooruRequest::new("yande.re".to_string())
 			//.set_tag("blue_archive".to_string())
 			//.randomize()
 			.set_limit(3)
 			.set_rating(RATING::S)
 			.set_tag("blue_archive".to_string());
-		
-		match request.build().rtype {
-			RequestType::Request(req) => {
-				println!("{}", req);
-			}
-			RequestType::RandomTemplate([req, q], lim) => {
-				println!("{}", req);
-				println!("{}", q);
-				println!("{}", lim);
-			}
-		}
+	
 
-		let a = request.build().get_images(&client).await.expect("я это обязательно исправлю");
+		let a: Vec<crate::models::api_responses::APIResponse> = request.get_images(&client).await.unwrap();
 		println!("{:#?}", a);
 
 		assert_eq!(a.len(), 3);

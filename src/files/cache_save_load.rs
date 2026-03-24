@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use crate::files::fs_api;
 
 /// url -> [timestamp, count]
-pub static CACHE_COUNT_IMAGES: Lazy<RwLock<HashMap<String, [u64; 2]>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+pub static CACHE_COUNT_IMAGES: Lazy<RwLock<HashMap<u64, [u64; 2]>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub static CACHE_FILE: Lazy<PathBuf> = Lazy::new(|| fs_api::get_cache_path("cache.json"));
 
@@ -45,7 +45,7 @@ pub async fn load_cache_from_file() -> Result<(), Box<dyn std::error::Error>> {
 
 	match fs::read(&*CACHE_FILE).await {
 		Ok(data) => {
-			let map: HashMap<String, [u64; 2]> = serde_json::from_slice(&data)?;
+			let map: HashMap<u64, [u64; 2]> = serde_json::from_slice(&data)?;
 			let mut cache = CACHE_COUNT_IMAGES.write().await;
 			*cache = map;
 			println!("Loaded {} entries from cache file", cache.len());

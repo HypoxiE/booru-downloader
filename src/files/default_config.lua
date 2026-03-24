@@ -32,27 +32,42 @@
 
 return {
 	configuration = {
-		rating = "s",
+		default_rating = "safe",
 	},
 
 	sites = {
 		["yande.re"] = {
 			max_limit = 1000, -- maximum images, given api
-			use_booru_ratings = true, -- using tags "rating:s", "rating:e" or "rating:q"
 
 			request_use_get = true, -- false - POST; true - GET
-			request_url = "https://yande.re/post.json?limit={limit}&page={page}&tags={tags}",
-			request_tags_separator = "+",
-			request_body = {},
 			request_headers = {
 				["User-Agent"] = "Mozilla/5.0",
 			},
+			use_self_randomize = true,
 
-			make_pre_request = function()
-				local out = ""
+			-- main pipeline
+
+			---@param limit number
+			---@param page number
+			---@param is_random boolean
+			---@param rating string -- "safe", "explicit", "questionable", "all"
+			---@param tags string[]
+			---@return string, string
+			make_request = function(limit, page, is_random, rating, tags)
+				local query_tags = {}
+				for i, v in ipairs(tags) do
+					query_tags[i] = v
+				end
+
+				if rating ~= "all" then
+					table.insert(query_tags, "rating:" .. rating:sub(1, 1))
+				end
+
+				local url = string.format("https://yande.re/post.json?limit=%d&page=%d&tags=%s", limit, page, table.concat(query_tags, "+"))
+				return url, ""
 			end,
 
-			parse = function(json)
+			parse_response = function(json)
 				local out = {}
 
 				for _, item in ipairs(json) do
@@ -98,6 +113,15 @@ return {
 				end
 				return out
 			end,
+		},
+
+		["nekos.moe"] = {
+			max_limit = 50,
+			use_booru_ratings = false,
+
+			request_use_get = false,
+			request_url = "https://nekos.moe/api/v1/images/search",
+			request_tags_separator = ",",
 		},
 
 		--["https://danbooru.donmai.us/posts.json"] = {

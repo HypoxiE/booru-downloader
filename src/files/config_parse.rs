@@ -51,7 +51,12 @@ impl LuaMapper {
 			}
 		};
 
-		let lua: Lua = Lua::new();
+		let lua: Lua = Lua::new_with(mlua::StdLib::ALL_SAFE, mlua::LuaOptions::default())?;
+		let json_encode = lua.create_function(|_, val: mlua::Value| {
+			Ok(serde_json::to_string(&val).unwrap())
+		})?;
+		lua.globals().set("json_encode", json_encode)?;
+
 		let mappings: Table = lua.load(lua_data).eval()?;
 
 		let cached_functions: HashMap<String, Function> = HashMap::<String, Function>::new();
@@ -60,6 +65,7 @@ impl LuaMapper {
 	}
 
 	pub fn map_api_responses(&mut self, domain: &str, json: &String) -> APIResponses {
+		//println!("{}", json);
 		let json: serde_json::Value = serde_json::from_str(json).unwrap_or_else(|e| panic!("Invalid JSON from {}: {}\nOriginal error: {}", domain, json, e));
 			
 
@@ -79,7 +85,7 @@ impl LuaMapper {
 				func
 			}
 		};
-
+		//println!("{:?}", json);
 		let lua_json: mlua::Value = self.lua.to_value(&json).expect("Cannot cast json to lua format");
 		let result: mlua::Value = func.call(&lua_json).expect(&format!("Cannot call 'sites.{}.parse_response' function with (json) argument", domain));
 
@@ -106,8 +112,8 @@ impl LuaMapper {
 				func
 			}
 		};
-
-		func.call((request.limit, request.page, request.is_random, request.get_rating(), request.tags.to_owned())).expect(&format!("Cannot call 'sites.{}.parse_response' function with (json) argument", domain))
+		//println!("lim: {}, page: {}, tags: {:?}", request.limit, request.page, request.tags);
+		func.call((request.limit, request.page, request.is_random, request.get_rating(), request.tags.to_owned())).expect(&format!("Cannot call 'sites.{}.make_request' function with (json) argument", domain))
 	}
 
 	pub fn get_api_parameter<T: mlua::FromLua>(&self, domain: &str, field: &str) -> T {

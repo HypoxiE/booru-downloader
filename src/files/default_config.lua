@@ -31,186 +31,292 @@
 --pub parent_id: Option<i64>,
 
 return {
-	configuration = {
-		default_rating = "safe",
+configuration = {
+	default_rating = "safe",
+},
+
+sites = {
+	["yande.re"] = {
+		max_limit = 1000, -- maximum images, given api
+
+		request_use_get = true, -- false - POST; true - GET
+		request_headers = {
+			["User-Agent"] = "Mozilla/5.0",
+		},
+		use_self_randomize = true,
+		timeout_for_randomize = 0,
+
+		-- main pipeline
+
+		---@param limit number
+		---@param page number
+		---@param is_random boolean
+		---@param rating string -- "safe", "explicit", "questionable", "all"
+		---@param tags string[]
+		---@return string, string
+		make_request = function(limit, page, is_random, rating, tags)
+			local query_tags = {}
+			for i, v in ipairs(tags) do
+				query_tags[i] = v
+			end
+
+			if rating ~= "all" then
+				table.insert(query_tags, "rating:" .. rating:sub(1, 1))
+			end
+
+			local url = string.format("https://yande.re/post.json?limit=%d&page=%d&tags=%s", limit, page, table.concat(query_tags, "+"))
+			return url, ""
+		end,
+
+		parse_response = function(json)
+			local out = {}
+
+			for _, item in ipairs(json) do
+
+				local tags = {}
+				for tag in string.gmatch(item.tags, "%S+") do
+					table.insert(tags, tag)
+				end
+
+				table.insert(out, {
+					id = item.id,
+					tags = tags,
+					created_at = item.created_at,
+					author = item.author,
+					rating = item.rating,
+					score = item.score,
+
+					md5 = item.md5,
+					file_ext = item.file_ext,
+
+					file_url = item.file_url,
+					sample_url = item.sample_url,
+					preview_url = item.preview_url,
+
+					width = item.width,
+					height = item.height,
+					sample_width = item.sample_width,
+					sample_height = item.sample_height,
+					preview_width = item.preview_width,
+					preview_height = item.preview_height,
+
+					file_size = item.file_size,
+					sample_file_size = item.sample_file_size,
+
+					jpeg_url = item.jpeg_url,
+					jpeg_width = item.jpeg_width,
+					jpeg_height = item.jpeg_height,
+					jpeg_file_size = item.jpeg_file_size,
+					
+					has_children = item.has_children or false,
+					parent_id = item.parent_id,
+				})
+			end
+			return out
+		end,
 	},
 
-	sites = {
-		["yande.re"] = {
-			max_limit = 1000, -- maximum images, given api
+	["nekos.moe"] = {
+		max_limit = 50,
 
-			request_use_get = true, -- false - POST; true - GET
-			request_headers = {
-				["User-Agent"] = "Mozilla/5.0",
-			},
-			use_self_randomize = true,
+		request_use_get = false,
+		use_self_randomize = true,
+		timeout_for_randomize = 3,
+		request_headers = {
+			["Content-Type"] = "application/json",
+		},
 
-			-- main pipeline
+		---@param limit number
+		---@param page number
+		---@param is_random boolean
+		---@param rating string -- "safe", "explicit", "questionable", "all"
+		---@param tags string[]
+		---@return string, string
+		make_request = function(limit, page, is_random, rating, tags)
+			local query_tags = {}
+			for i, v in ipairs(tags) do
+				query_tags[i] = v
+			end
 
-			---@param limit number
-			---@param page number
-			---@param is_random boolean
-			---@param rating string -- "safe", "explicit", "questionable", "all"
-			---@param tags string[]
-			---@return string, string
-			make_request = function(limit, page, is_random, rating, tags)
-				local query_tags = {}
-				for i, v in ipairs(tags) do
-					query_tags[i] = v
-				end
+			local body_tbl = {
+				limit = limit,
+				skip = page * limit,
+				--tags = tags,
+			}
 
-				if rating ~= "all" then
-					table.insert(query_tags, "rating:" .. rating:sub(1, 1))
-				end
+			if rating == "safe" then
+				body_tbl.nsfw = false
+			elseif rating == "explicit" or rating == "questionable" then
+				body_tbl.nsfw = true
+			end
 
-				local url = string.format("https://yande.re/post.json?limit=%d&page=%d&tags=%s", limit, page, table.concat(query_tags, "+"))
-				return url, ""
-			end,
+			local body = json_encode(body_tbl)
 
-			parse_response = function(json)
-				local out = {}
+			local url = "https://nekos.moe/api/v1/images/search"
+			return url, body
+		end,
+		parse_response = function(json)
+			local out = {}
 
-				for _, item in ipairs(json) do
-
-					local tags = {}
-					for tag in string.gmatch(item.tags, "%S+") do
-						table.insert(tags, tag)
-					end
-
-					table.insert(out, {
-						id = item.id,
-						tags = tags,
-						created_at = item.created_at,
-						author = item.author,
-						rating = item.rating,
-						score = item.score,
-
-						md5 = item.md5,
-						file_ext = item.file_ext,
-
-						file_url = item.file_url,
-						sample_url = item.sample_url,
-						preview_url = item.preview_url,
-
-						width = item.width,
-						height = item.height,
-						sample_width = item.sample_width,
-						sample_height = item.sample_height,
-						preview_width = item.preview_width,
-						preview_height = item.preview_height,
-
-						file_size = item.file_size,
-						sample_file_size = item.sample_file_size,
-
-						jpeg_url = item.jpeg_url,
-						jpeg_width = item.jpeg_width,
-						jpeg_height = item.jpeg_height,
-						jpeg_file_size = item.jpeg_file_size,
-						
-						has_children = item.has_children or false,
-						parent_id = item.parent_id,
-					})
-				end
+			if not json or not json.images then
 				return out
-			end,
-		},
+			end
 
-		["nekos.moe"] = {
-			max_limit = 50,
-			use_booru_ratings = false,
+			local function iso_to_unix(iso)
+				local clean = iso:match("^(%d+%-%d+%-%d+T%d+:%d+:%d+)")
+				local year, month, day, hour, min, sec = clean:match("(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)")
 
-			request_use_get = false,
-			request_url = "https://nekos.moe/api/v1/images/search",
-			request_tags_separator = ",",
-		},
+				local timestamp = os.time({
+					year = tonumber(year),
+					month = tonumber(month),
+					day = tonumber(day),
+					hour = tonumber(hour),
+					min = tonumber(min),
+					sec = tonumber(sec),
+					isdst = false
+				})
 
-		--["https://danbooru.donmai.us/posts.json"] = {
-		--	max_limit = 200,
-		--	parse = function(json)
-		--		local out = {}
+				local offset = os.difftime(os.time(os.date("!*t")), os.time())
 
-		--		local function iso_to_unix(iso)
-		--			local year, month, day, hour, min, sec, ms, tz_sign, tz_hour, tz_min =
-		--				iso:match("(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)%.(%d+)([%+%-])(%d+):(%d+)")
+				return math.floor(timestamp - offset)
+			end
+
+			for _, item in ipairs(json.images) do
+				local rating = "q"
+				if item.nsfw == true then
+					rating = "e"
+				elseif item.nsfw == false then
+					rating = "s"
+				end
+
+				local created_at = iso_to_unix(item.createdAt)
+
+				table.insert(out, {
+					id = item.id,
+					tags = item.tags,
+					created_at = created_at,
+					author = item.artist,
+					rating = rating,
+					score = item.likes,
+
+					md5 = "",
+					file_ext = "jpg",
+
+					file_url = string.format("https://nekos.moe/image/%s.jpg", item.id),
+					sample_url = string.format("https://nekos.moe/image/%s.jpg", item.id),
+					preview_url = string.format("https://nekos.moe/image/%s.jpg", item.id),
+
+					width = nil,
+					height = nil,
+					sample_width = nil,
+					sample_height = nil,
+					preview_width = nil,
+					preview_height = nil,
+
+					file_size = nil,
+					sample_file_size = nil,
+
+					jpeg_url = string.format("https://nekos.moe/image/%s.jpg", item.id),
+					jpeg_width = nil,
+					jpeg_height = nil,
+					jpeg_file_size = nil,
 					
-		--			year = tonumber(year)
-		--			month = tonumber(month)
-		--			day = tonumber(day)
-		--			hour = tonumber(hour)
-		--			min = tonumber(min)
-		--			sec = tonumber(sec)
+					has_children = false,
+					parent_id = nil,
+				})
+			end
+			return out
+		end,
 
-		--			tz_hour = tonumber(tz_hour)
-		--			tz_min = tonumber(tz_min)
-					
-		--			local tz_offset = tz_hour * 3600 + tz_min * 60
-		--			if tz_sign == "-" then tz_offset = -tz_offset end
+	},
 
-		--			local timestamp = os.time({year=year, month=month, day=day, hour=hour, min=min, sec=sec})
-					
-		--			return timestamp - tz_offset
-		--		end
+	--["https://danbooru.donmai.us/posts.json"] = {
+	--	max_limit = 200,
+	--	parse = function(json)
+	--		local out = {}
 
-		--		for _, item in ipairs(json.data) do
+	--		local function iso_to_unix(iso)
+	--			local year, month, day, hour, min, sec, ms, tz_sign, tz_hour, tz_min =
+	--				iso:match("(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)%.(%d+)([%+%-])(%d+):(%d+)")
+				
+	--			year = tonumber(year)
+	--			month = tonumber(month)
+	--			day = tonumber(day)
+	--			hour = tonumber(hour)
+	--			min = tonumber(min)
+	--			sec = tonumber(sec)
 
-		--			local tags = {}
-		--			for tag in string.gmatch(item.tags, "%S+") do
-		--				table.insert(tags, tag)
-		--			end
+	--			tz_hour = tonumber(tz_hour)
+	--			tz_min = tonumber(tz_min)
+				
+	--			local tz_offset = tz_hour * 3600 + tz_min * 60
+	--			if tz_sign == "-" then tz_offset = -tz_offset end
 
-		--			local sample_width = nil
-		--			local sample_height = nil
-		--			local preview_width = nil
-		--			local preview_height = nil
-		--			if item.media_assets then
-		--				for _, im in ipairs(item.media_asset.variants) do
-		--					if im.type == "180x180" then
-		--						preview_width = im.width
-		--						preview_height = im.height
-		--					end
-		--					if im.type == "sample" then
-		--						sample_width = im.width
-		--						sample_height = im.height
-		--					end
-		--				end
-		--			end
+	--			local timestamp = os.time({year=year, month=month, day=day, hour=hour, min=min, sec=sec})
+				
+	--			return timestamp - tz_offset
+	--		end
 
-		--			table.insert(out, {
-		--				id = item.id,
-		--				tags = tags,
-		--				created_at = iso_to_unix(item.created_at),
-		--				author = item.tag_string_artist ~= "" and item.tag_string_artist or nil,
-		--				rating = item.rating,
-		--				score = item.score,
+	--		for _, item in ipairs(json.data) do
 
-		--				md5 = item.md5,
-		--				file_ext = item.file_ext,
+	--			local tags = {}
+	--			for tag in string.gmatch(item.tags, "%S+") do
+	--				table.insert(tags, tag)
+	--			end
 
-		--				file_url = item.file_url or item.source,
-		--				sample_url = item.large_file_url or item.file_url or item.source,
-		--				preview_url = item.preview_file_url or item.file_url or item.source,
+	--			local sample_width = nil
+	--			local sample_height = nil
+	--			local preview_width = nil
+	--			local preview_height = nil
+	--			if item.media_assets then
+	--				for _, im in ipairs(item.media_asset.variants) do
+	--					if im.type == "180x180" then
+	--						preview_width = im.width
+	--						preview_height = im.height
+	--					end
+	--					if im.type == "sample" then
+	--						sample_width = im.width
+	--						sample_height = im.height
+	--					end
+	--				end
+	--			end
 
-		--				width = item.image_width,
-		--				height = item.image_height,
-		--				sample_width = sample_width or item.image_width,
-		--				sample_height = sample_height or item.image_height,
-		--				preview_width = preview_width or item.image_width,
-		--				preview_height = preview_height or item.image_height,
+	--			table.insert(out, {
+	--				id = item.id,
+	--				tags = tags,
+	--				created_at = iso_to_unix(item.created_at),
+	--				author = item.tag_string_artist ~= "" and item.tag_string_artist or nil,
+	--				rating = item.rating,
+	--				score = item.score,
 
-		--				file_size = item.file_size,
-		--				sample_file_size = item.file_size,
+	--				md5 = item.md5,
+	--				file_ext = item.file_ext,
 
-		--				jpeg_url = nil,
-		--				jpeg_width = nil,
-		--				jpeg_height = nil,
-		--				jpeg_file_size = nil,
+	--				file_url = item.file_url or item.source,
+	--				sample_url = item.large_file_url or item.file_url or item.source,
+	--				preview_url = item.preview_file_url or item.file_url or item.source,
 
-		--				has_children = false,
-		--				parent_id = nil,
-		--			})
-		--		end
-		--		return out
-		--	end,
-		--}
-	}
+	--				width = item.image_width,
+	--				height = item.image_height,
+	--				sample_width = sample_width or item.image_width,
+	--				sample_height = sample_height or item.image_height,
+	--				preview_width = preview_width or item.image_width,
+	--				preview_height = preview_height or item.image_height,
+
+	--				file_size = item.file_size,
+	--				sample_file_size = item.file_size,
+
+	--				jpeg_url = nil,
+	--				jpeg_width = nil,
+	--				jpeg_height = nil,
+	--				jpeg_file_size = nil,
+
+	--				has_children = false,
+	--				parent_id = nil,
+	--			})
+	--		end
+	--		return out
+	--	end,
+	--}
+}
 }

@@ -1,17 +1,17 @@
 meta {
-  name: dambooru
+  name: danbooru
   type: http
   seq: 2
 }
 
 get {
-  url: https://danbooru.donmai.us/posts.json?limit=1
+  url: https://danbooru.donmai.us/posts.json?limit=10
   body: none
   auth: inherit
 }
 
 params:query {
-  limit: 1
+  limit: 10
 }
 
 settings {

@@ -5,7 +5,7 @@ pub type APIResponses = Vec<APIResponse>;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct APIResponse {
-	pub id: i64,
+	pub id: String,
 	pub tags: Vec<String>,
 	#[serde(rename = "created_at")]
 	pub created_at: i64,
@@ -24,22 +24,22 @@ pub struct APIResponse {
 	#[serde(rename = "preview_url")]
 	pub preview_url: String,
 
-	pub width: i64,
-	pub height: i64,
+	pub width: Option<i64>,
+	pub height: Option<i64>,
 	#[serde(rename = "sample_width")]
-	pub sample_width: i64,
+	pub sample_width: Option<i64>,
 	#[serde(rename = "sample_height")]
-	pub sample_height: i64,
+	pub sample_height: Option<i64>,
 	#[serde(rename = "preview_width")]
-	pub preview_width: i64,
+	pub preview_width: Option<i64>,
 	#[serde(rename = "preview_height")]
-	pub preview_height: i64,
+	pub preview_height: Option<i64>,
 	
 
 	#[serde(rename = "file_size")]
-	pub file_size: i64,
+	pub file_size: Option<i64>,
 	#[serde(rename = "sample_file_size")]
-	pub sample_file_size: i64,
+	pub sample_file_size: Option<i64>,
 
 
 	#[serde(rename = "jpeg_url")]

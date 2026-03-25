@@ -13,16 +13,21 @@ async fn main() {
 
 	let client: reqwest::Client = reqwest::Client::new();
 
-	let request: BooruRequest = BooruRequest::new("yande.re".to_string())
+	//let request: BooruRequest = BooruRequest::new("yande.re".to_string())
+	//		//.set_tag("blue_archive".to_string())
+	//		.randomize()
+	//		.set_limit(4)
+	//		.set_rating(RATING::S)
+	//		.set_tag("width:>=1920".to_string())
+	//		.set_tag("height:<1500".to_string())
+	//		.set_tag("nekopara".to_string());
+	let request: BooruRequest = BooruRequest::new("nekos.moe".to_string())
 			//.set_tag("blue_archive".to_string())
 			.randomize()
-			.set_limit(4)
-			.set_rating(RATING::S)
-			.set_tag("width:>=1920".to_string())
-			.set_tag("height:<1500".to_string())
-			.set_tag("nekopara".to_string());
+			.set_limit(1)
+			.set_rating(RATING::ALL);
 
-	let a: Vec<models::api_responses::APIResponse> = request.get_images(&client).await.expect("я это обязательно исправлю");
+	let a: Vec<models::api_responses::APIResponse> = request.get_images(&client).await.unwrap();
 	println!("{:#?}", a);
 
 

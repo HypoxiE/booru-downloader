@@ -1,11 +1,12 @@
 use reqwest::{Client};
 use std::{collections::HashMap};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use sha2::{Sha512, Digest};
 
 use crate::cache_save_load::CACHE_COUNT_IMAGES;
 use crate::models::{api_responses::APIResponses};
 use crate::files::config_parse::CONFIGURATIONS;
+
+use tokio::time::{sleep, Duration};
 
 use chrono::prelude::Utc;
 
@@ -69,6 +70,8 @@ impl BooruRequest {
 		let mut mapper = CONFIGURATIONS.lock().unwrap();
 		let (url, body): (String, String) = mapper.generate_url(&self);
 
+		//println!("{}\n{}", url, body);
+
 		let use_get_request: bool = mapper.get_api_parameter(&self.domain, "request_use_get");
 		let mut raw_request: reqwest::RequestBuilder = if use_get_request {
 			client.get(url)
@@ -101,15 +104,22 @@ impl BooruRequest {
 		requester
 	}
 
-	pub fn get_hash(&self) -> u64 {
+	pub fn get_hash(&self) -> String {
 		let mut tags: Vec<String> = self.tags.clone();
 		tags.push(self.get_rating());
 		tags.push(self.domain.to_owned());
-
 		tags.sort();
-		let mut hasher = DefaultHasher::new();
-		tags.hash(&mut hasher);
-		hasher.finish()
+
+		//let mut hasher = DefaultHasher::new();
+		//tags.hash(&mut hasher);
+		//hasher.finish()
+
+		let mut hasher512 = Sha512::new();
+		for s in &tags {
+			hasher512.update(s.as_bytes());
+		}
+		let result512 = hasher512.finalize();
+		format!("{:x}", result512)
 	}
 
 }
@@ -134,11 +144,12 @@ impl BooruRequest {
 
 	pub async fn get_images(&self, client: &Client) -> anyhow::Result<APIResponses> {
 
-		let (use_self_randomizer, max_limit): (bool, u16) = {
+		let (use_self_randomizer, max_limit, request_timeout): (bool, u16, f32) = {
 			let mapper = CONFIGURATIONS.lock().unwrap();
 			(
 				mapper.get_api_parameter(&self.domain, "use_self_randomize"),
-				mapper.get_api_parameter(&self.domain, "max_limit")
+				mapper.get_api_parameter(&self.domain, "max_limit"),
+				mapper.get_api_parameter(&self.domain, "timeout_for_randomize")
 			)
 		};
 
@@ -166,6 +177,7 @@ impl BooruRequest {
 
 
 					let result: APIResponses = self.get_max_lim(page_size_lim).norandom_get_images(client).await?;
+					sleep(Duration::from_secs_f32(request_timeout)).await;
 
 					if result.len() < max_size_page as usize && result.len() > 0 {
 						break (page_size_lim - 1) * max_size_page as u64 + result.len() as u64;
@@ -182,6 +194,7 @@ impl BooruRequest {
 							let mid: u64 = (low + high + 1) / 2;
 
 							let result: APIResponses = self.get_max_lim(mid).norandom_get_images(client).await?;
+							sleep(Duration::from_secs_f32(request_timeout)).await;
 
 							if result.is_empty() {
 								high = mid - 1;
@@ -192,6 +205,7 @@ impl BooruRequest {
 						let last_page: u64 = low;
 
 						let last_page_data: APIResponses = self.get_max_lim(last_page).norandom_get_images(client).await?;
+						sleep(Duration::from_secs_f32(request_timeout)).await;
 
 						break (last_page - 1) * max_size_page as u64 + last_page_data.len() as u64;
 					}
@@ -209,6 +223,7 @@ impl BooruRequest {
 
 			for _ in 0..self.limit as u64 {
 				let mut answer = self.get_min_lim(fastrand::u64(1..=total_images)).norandom_get_images(client).await?;
+				sleep(Duration::from_secs_f32(request_timeout)).await;
 				result.append(&mut answer);
 			}
 			Ok(result)
